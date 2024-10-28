@@ -18,6 +18,7 @@ The main purpose of this data analysis was to compare the model fit and biologic
 ## Model fitting
 
 Our linear model (i.e., Gaussian) was fitted using the `brms` package: `model_1 <- brm(pobs ~ 1 + Cultivar + dose, data = data, family = gaussian, chains = 4, iter = 2000, seed = 25102024)`;
+
 And the beta model was fitted like this: `model_2 <- brm(pobs ~ 1 + Cultivar + dose, data = data, family = Beta, chains = 4, iter = 2000, seed = 25102024)`
 
 ### Model fit comparison
