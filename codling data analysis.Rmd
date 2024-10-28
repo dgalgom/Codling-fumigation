@@ -1,0 +1,237 @@
+---
+title: "codling data analysis"
+output: html_document
+date: "2024-10-25"
+---
+
+## Introduction
+
+The research that generated these data was in part funded by New Zealand pipfruit growers. The published analysis was funded by New Zealand pipfruit growers.
+Data are from trials that studied the mortality response of codling moth to fumigation with methyl bromide.
+
+```{r}
+# libraries
+library(tidyverse)
+library(brms)
+library(tidybayes)
+library(marginaleffects)
+library(ggthemes)
+library(ggsci)
+library(cowplot)
+library(patchwork)
+
+# Import dataset
+data <- read_csv(paste(getwd(), "/codling.csv", sep = ""))
+```
+
+
+### Variables explanation
+
+  + `dose`: injected dose of methyl bromide, in mg per cubic meter 
+  + `tot`: number of insects in chamber
+  + `dead`: number of insects dying
+  + `pobs`: proportion dying
+  + `cm`: control mortality (i.e., at dose 0)
+  + `ct`: concentration-tim sum
+  + `Cultivar`: a factor with levels `BRAEBURN`, `FUJI`, `GRANNY`, `Gala`, `ROYAL`, `Red Delicious`, and `Splendour`
+  + `gp`: a factor which has a different level for each different combination of `Cultivar`, `year`, and `rep` (replicate)
+  + `year`: a factor with levels 1988 and 1989
+  + `numcm`: total number of control insects
+  
+  
+## Exploratory Data Analysis (EDA) 
+
+```{r}
+data %>%
+  ggplot(aes(dose, pobs)) +
+  geom_point(alpha = 0.7, aes(col = factor(year), size = numcm)) +
+  facet_wrap(~ Cultivar) +
+  geom_smooth(se = FALSE, col = "black") +
+  labs(x = "Dose (mg)",
+       y = "Proportion of insects dying",
+       col = "Year",
+       size = "Total number of control insects") +
+  theme_clean() +
+  theme(legend.position = "bottom") +
+  scale_color_aaas() +
+  scale_x_continuous(breaks = seq(0, 30, 5)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.25))
+```
+
+
+The majority of dose-response patterns follow a type of sigmoid, which can be achieved using the **beta** likelihood.
+
+
+## Fitting our models 
+
+```{r}
+# linear model
+model_1 <- brm(pobs ~ 1 + Cultivar + dose,
+               data = data,
+               family = gaussian, # Gaussian likelihood
+               chains = 4,
+               iter = 2000,
+               seed = 25102024)
+
+# beta model
+model_2 <- brm(pobs ~ 1 + Cultivar + dose,
+               data = data,
+               family = Beta, # Beta likelihood
+               chains = 4,
+               iter = 2000,
+               seed = 25102024)
+```
+
+
+
+### Posterior predictive checking
+
+```{r}
+set.seed(2510)
+
+pp_check(model_1, type = "dens_overlay_grouped", group = "Cultivar", ndraws = 100)
+
+
+pp_check(model_2, type = "dens_overlay_grouped", group = "Cultivar", ndraws = 100)
+
+```
+
+
+
+## Predictions
+
+```{r}
+# data grid creation for predictions
+newdata <- crossing(Cultivar = unique(data$Cultivar),
+                    dose = seq(0, 30))
+
+
+# which likelihood will produce more confident predictions?
+bind_rows(
+          # compute the gaussian fitted line
+          fitted(model_1, newdata = newdata) %>%
+            data.frame() %>%
+            bind_cols(newdata),
+          
+          # compute the beta fitted line
+          fitted(model_2, newdata = newdata) %>%
+            data.frame() %>%
+            bind_cols(newdata)) %>%
+  
+  # data wrangling
+  mutate(likelihood = rep(c("Gaussian", "Beta"), each = n()/2) %>% factor(levels = c("Gaussian", "Beta"))) %>%
+  
+  # plot
+  ggplot(aes(x = dose)) +
+  geom_hline(yintercept = 0:1, color = "white", linetype = 2) +
+  geom_vline(xintercept = c(0, 30), color = "white", linetype = 2) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5, fill = likelihood),
+              linewidth = 0, alpha = 0.5) +
+  geom_point(data = data,
+             aes(y = pobs)) +
+  scale_fill_viridis_d(option = "B", begin = 0.15, end = 0.8) +
+  facet_wrap(~ Cultivar) +
+  labs(x = "Dose (mg)",
+       y = "Proportion of insects dying",
+       fill = "Likelihood") +
+  theme_dark() +
+  theme(legend.position = "bottom")
+
+```
+
+
+### Marginal effects predictions for both likelihoods
+
+```{r}
+
+# using the linear model
+model_1 %>% 
+  epred_draws(newdata = expand_grid(Cultivar = unique(data$Cultivar),
+                    dose = seq(0, 30))) %>%
+
+ggplot(aes(x = dose, y = .epred)) +
+  facet_wrap(~ Cultivar) +
+  stat_lineribbon() + 
+  scale_fill_brewer(palette = "Purples") +
+  labs(x = "Dose (mg)", y = "Proportion of insects dying",
+       fill = "Credible interval") +
+  theme_pander() +
+  scale_y_continuous(limits = c(-0.25, 1.25)) +
+  theme(legend.position = "bottom")
+
+
+
+# using our beta model
+model_2 %>% 
+  epred_draws(newdata = expand_grid(Cultivar = unique(data$Cultivar),
+                    dose = seq(0, 30))) %>%
+
+# plot
+ggplot(aes(x = dose, y = .epred)) +
+  facet_wrap(~ Cultivar) +
+  stat_lineribbon() + 
+  scale_fill_brewer(palette = "Purples") +
+  labs(x = "Dose (mg)", y = "Proportion of insects dying",
+       fill = "Credible interval") +
+  theme_pander() +
+  scale_y_continuous(limits = 0:1) +
+  theme(legend.position = "bottom")
+
+```
+
+
+## Average dose-response relationship between treatment dosage and proportion of eliminated insects
+
+```{r}
+# using our beta model
+model_2 %>% 
+  epred_draws(newdata = expand_grid(Cultivar = unique(data$Cultivar),
+                    dose = seq(0, 30))) %>%
+
+# plot
+ggplot(aes(x = dose, y = .epred)) +
+  # facet_wrap(~ Cultivar) +
+  stat_lineribbon() + 
+  annotate("segment", x = 0, xend = 21.8, y = 0.75, yend = 0.75, col = "black", size = 1.2, linetype = 2) +
+  annotate("segment", x = 21.8, xend = 21.8, y = 0, yend = 0.75, col = "black", size = 1.2, linetype = 2) +
+  geom_point(aes(x = x, y = y), data = data.frame(x = 21.8, y = 0.75), shape = 13, size = 8) +
+  annotate("text", x = 15.5, y = 0.8, label = "Minimal effective dose?", size = 7) +
+  scale_fill_brewer(palette = "Purples") +
+  labs(x = "Dose (mg)", y = "Proportion of insects dying",
+       fill = "Credible interval",
+       title = "Average dose-response relationship",
+       subtitle = "A treatment is considered effective when it eliminates, at least, 75% of the insects") +
+  theme_pander() +
+  scale_y_continuous(limits = 0:1) +
+  theme(legend.position = "bottom")
+```
+
+
+### Which is the optimal treatment?
+
+```{r}
+sink(file = "output.txt")
+
+# predictions
+model_2 %>% 
+  epred_draws(newdata = expand_grid(Cultivar = unique(data$Cultivar),
+                    dose = seq(0, 30))) %>% 
+  group_by(Cultivar, dose) %>%
+  
+  # computation of the mean and 95% CI of the predictions
+  mean_qi(.epred) %>%
+  
+  # filter by predicted responses above 75% (i.e., the minimal effective threshold)
+  filter(.epred > .75) %>% 
+  
+  # just keep the first line of each treatment (i.e., the minimal effective dose)
+  filter(!duplicated(Cultivar)) %>%
+  as.data.frame()
+
+sink()
+```
+
+```{r, echo=FALSE}
+sessionInfo()
+```
+
