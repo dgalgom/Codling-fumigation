@@ -54,7 +54,7 @@ That is of the utmost importance because of (1) the economic impact that could h
 Therefore, we predicted at which dose each treatment reached the 75% of eliminates insects, and the "Red Delicious" treatment was considered the most efficient: at 21 mg, it eliminates roughly 77% of the insects with a 95% credible interval from 73% to 80% (in fact, this one had associated the lowest uncertainty in their estimates).
 
 
-|Cultivar     |dose|.epred   |.lower   |.upper   |.width|.point|.interval|
+|Cultivar     |Dose|Response |Lower bound|Upper bound|% CrI|Point estimate|Interval|
 |------------:|----|---------|---------|---------|------|------|---------|
 |BRAEBURN     |21  |0.7538827|0.6915763|0.8106397|0.95  |mean  |qi       |
 |FUJI         |24  |0.7535776|0.6867785|0.8123199|0.95  |mean  |qi       |
